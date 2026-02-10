@@ -20,20 +20,15 @@ type ResultCard = {
 export default function ResultsPage() {
   const router = useRouter();
 
-  const [onboarding, setOnboarding] = useState<OnboardingPayload | null>(null);
-  const [result, setResult] = useState<KundaliResult | null>(null);
-  const [missingData, setMissingData] = useState(false);
+  const [onboarding, setOnboarding] = useState<OnboardingPayload | null | undefined>(
+    undefined,
+  );
+  const [result, setResult] = useState<KundaliResult | null | undefined>(undefined);
   const [cardIndex, setCardIndex] = useState(0);
 
   useEffect(() => {
     const onboardingData = getOnboardingLocal();
     const resultData = getResultLocal();
-
-    if (!onboardingData || !resultData) {
-      setMissingData(true);
-      return;
-    }
-
     setOnboarding(onboardingData);
     setResult(resultData);
   }, []);
@@ -133,7 +128,9 @@ export default function ResultsPage() {
     ];
   }, [result]);
 
-  if (missingData) {
+  if (onboarding === undefined || result === undefined) return null;
+
+  if (!onboarding || !result) {
     return (
       <main className="lumina-shell">
         <section className="lumina-card">

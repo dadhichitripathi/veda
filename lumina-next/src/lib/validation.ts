@@ -16,7 +16,9 @@ export function validateField(
     case "gender":
       return value ? "" : "Please choose gender.";
     case "dateOfBirth": {
-      if (!value) return "Please select date of birth.";
+      if (typeof value !== "string" || value.length === 0) {
+        return "Please select date of birth.";
+      }
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return "Invalid date.";
       if (date > new Date()) return "Date of birth cannot be in the future.";
