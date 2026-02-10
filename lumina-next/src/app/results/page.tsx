@@ -27,10 +27,14 @@ export default function ResultsPage() {
   const [cardIndex, setCardIndex] = useState(0);
 
   useEffect(() => {
-    const onboardingData = getOnboardingLocal();
-    const resultData = getResultLocal();
-    setOnboarding(onboardingData);
-    setResult(resultData);
+    const timer = window.setTimeout(() => {
+      const onboardingData = getOnboardingLocal();
+      const resultData = getResultLocal();
+      setOnboarding(onboardingData);
+      setResult(resultData);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   const cards = useMemo<ResultCard[]>(() => {
