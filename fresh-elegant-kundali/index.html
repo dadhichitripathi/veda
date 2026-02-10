@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vedanga Lumina — Elegant Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="ambient">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="grain"></div>
+    </div>
+
+    <div class="shell">
+      <header class="topbar card">
+        <div>
+          <p class="eyebrow">Vedanga Lumina</p>
+          <h1>A calmer, smarter Kundali journey</h1>
+        </div>
+        <span id="sessionBadge" class="badge">Session not started</span>
+      </header>
+
+      <main>
+        <section id="view-onboarding" class="view active">
+          <div class="card">
+            <div class="section-head">
+              <h2>Step 1: Confirm your details</h2>
+              <p>
+                Takes about 2 minutes. Your data is used only to generate your
+                personalized Vedic insights.
+              </p>
+            </div>
+
+            <form id="onboardingForm" novalidate>
+              <div class="grid">
+                <label>
+                  <span>Full name</span>
+                  <input id="name" name="name" type="text" placeholder="Your name" />
+                  <small class="error" data-error-for="name"></small>
+                </label>
+
+                <label>
+                  <span>Gender</span>
+                  <select id="gender" name="gender">
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <small class="error" data-error-for="gender"></small>
+                </label>
+
+                <label>
+                  <span>Date of birth</span>
+                  <input id="dob" name="dob" type="date" />
+                  <small class="error" data-error-for="dob"></small>
+                </label>
+
+                <label>
+                  <span>Birth time</span>
+                  <input id="tob" name="tob" type="time" />
+                  <small class="error" data-error-for="tob"></small>
+                </label>
+
+                <label class="full">
+                  <span>Birth city</span>
+                  <input
+                    id="city"
+                    name="city"
+                    type="text"
+                    placeholder="City, State"
+                    autocomplete="off"
+                  />
+                  <small class="hint">Type at least 2 letters for suggestions.</small>
+                  <small class="error" data-error-for="city"></small>
+                </label>
+
+                <label>
+                  <span>Country code</span>
+                  <select id="countryCode" name="countryCode"></select>
+                  <small class="error" data-error-for="countryCode"></small>
+                </label>
+
+                <label>
+                  <span>WhatsApp number</span>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    placeholder="8 to 15 digits"
+                    autocomplete="tel"
+                  />
+                  <small class="hint">Only numbers. 8 to 15 digits supported.</small>
+                  <small class="error" data-error-for="phone"></small>
+                </label>
+              </div>
+
+              <label class="consent-row">
+                <input id="consent" name="consent" type="checkbox" />
+                <span>
+                  I agree to use my details for astrology calculation and personalized
+                  recommendations.
+                </span>
+              </label>
+              <small class="error" data-error-for="consent"></small>
+
+              <div id="saveStatus" class="status muted">Fill details to continue.</div>
+
+              <div class="actions">
+                <button id="submitBtn" type="submit">Generate my Kundali</button>
+                <button id="retrySaveBtn" type="button" class="ghost hidden">
+                  Retry save
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="view-crafting" class="view">
+          <div class="card">
+            <div class="section-head">
+              <h2>Step 2: Crafting your insights</h2>
+              <p id="phaseText">Casting your birth chart...</p>
+            </div>
+
+            <div class="progress-shell">
+              <div id="progressBar" class="progress"></div>
+            </div>
+            <p id="progressLabel" class="progress-label">0%</p>
+
+            <div id="questionCard" class="question-card hidden">
+              <p class="mini">Quick insight</p>
+              <h3 id="questionTitle"></h3>
+              <div id="questionOptions" class="option-list"></div>
+              <p id="questionResponse" class="response hidden"></p>
+              <p id="didYouKnow" class="did-you-know hidden"></p>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-results" class="view">
+          <div class="card">
+            <div class="section-head">
+              <h2 id="resultHeading">Your Lumina Blueprint</h2>
+              <p id="resultSubHeading">Insights focused on your next meaningful steps.</p>
+            </div>
+
+            <div id="cardsViewport" class="cards-viewport"></div>
+
+            <div class="result-nav">
+              <button id="prevCardBtn" type="button" class="ghost">Previous</button>
+              <div id="cardDots" class="dots"></div>
+              <button id="nextCardBtn" type="button" class="ghost">Next</button>
+            </div>
+
+            <div class="actions">
+              <button id="editDetailsBtn" type="button" class="ghost">
+                Edit onboarding details
+              </button>
+              <button id="newSessionBtn" type="button">Start a new reading</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
