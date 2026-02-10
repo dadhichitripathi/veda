@@ -17,3 +17,25 @@ Key files:
 - `fresh-elegant-kundali/docs/IMPLEMENTATION_NOTES.md`
 
 Open `fresh-elegant-kundali/index.html` in a browser to view the new onboarding-to-results prototype.
+
+## Production starter (Next.js + TypeScript)
+
+Path: `lumina-next/`
+
+Highlights:
+
+- Routes: `/onboarding`, `/crafting`, `/results`
+- API routes:
+  - `POST /api/onboarding/save`
+  - `POST /api/kundali/generate`
+  - `GET /api/chat/status`
+
+Run:
+
+```bash
+cd lumina-next
+npm install
+npm run dev
+```
+
+Then open `http://localhost:3000/onboarding`.
