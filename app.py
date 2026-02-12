@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -105,6 +106,10 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _format_rs(value: float) -> str:
+    return f"Rs {value:,.0f}"
+
+
 def sync_sale_status(conn: sqlite3.Connection, sale_id: int) -> None:
     row = conn.execute(
         """
@@ -154,125 +159,564 @@ def sync_all_sales(conn: sqlite3.Connection) -> None:
 
 
 def render_dashboard(conn: sqlite3.Connection) -> None:
-    st.subheader("Business Dashboard")
+    st.subheader("Executive Dashboard")
+    st.caption("Professional control view for sales, collections, and inventory movement.")
 
-    inv_summary = conn.execute(
+    st.markdown(
         """
-        SELECT
-            COUNT(*) AS total_bikes,
-            SUM(CASE WHEN status IN ('in_stock', 'reserved') THEN 1 ELSE 0 END) AS active_inventory,
-            SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) AS sold_bikes,
-            COALESCE(SUM(purchase_price), 0) AS total_purchase_cost
-        FROM bikes
-        """
-    ).fetchone()
-
-    sales_summary = conn.execute(
-        """
-        SELECT
-            COALESCE(SUM(final_sale_price), 0) AS contracted_value
-        FROM sales
-        WHERE sale_status != 'cancelled'
-        """
-    ).fetchone()
-
-    payment_summary = conn.execute(
-        "SELECT COALESCE(SUM(amount), 0) AS total_received FROM payments"
-    ).fetchone()
-
-    total_bikes = int(inv_summary["total_bikes"] or 0)
-    active_inventory = int(inv_summary["active_inventory"] or 0)
-    sold_bikes = int(inv_summary["sold_bikes"] or 0)
-    total_purchase_cost = _safe_float(inv_summary["total_purchase_cost"])
-    contracted_value = _safe_float(sales_summary["contracted_value"])
-    total_received = _safe_float(payment_summary["total_received"])
-    outstanding = contracted_value - total_received
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Bikes", total_bikes)
-    c2.metric("Active Inventory", active_inventory)
-    c3.metric("Sold Bikes", sold_bikes)
-    c4.metric("Outstanding (Rs)", f"{outstanding:,.2f}")
-
-    c5, c6, c7 = st.columns(3)
-    c5.metric("Total Purchase Cost (Rs)", f"{total_purchase_cost:,.2f}")
-    c6.metric("Contracted Sales (Rs)", f"{contracted_value:,.2f}")
-    c7.metric("Total Received (Rs)", f"{total_received:,.2f}")
-
-    st.markdown("---")
-
-    stock_by_model = query_df(
-        conn,
-        """
-        SELECT ola_model AS model, COUNT(*) AS units
-        FROM bikes
-        WHERE status IN ('in_stock', 'reserved')
-        GROUP BY ola_model
-        ORDER BY units DESC, model
+        <style>
+        div[data-testid="stMetric"] {
+            border: 1px solid rgba(120, 120, 120, 0.22);
+            border-radius: 12px;
+            padding: 12px 14px;
+            background-color: rgba(120, 120, 120, 0.03);
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 1.35rem;
+        }
+        </style>
         """,
+        unsafe_allow_html=True,
     )
 
-    km_bucket = query_df(
+    bikes_df = query_df(
         conn,
         """
         SELECT
-            CASE
-                WHEN kms_run < 100 THEN '<100 km'
-                WHEN kms_run < 1000 THEN '100-999 km'
-                WHEN kms_run < 5000 THEN '1k-4.9k km'
-                WHEN kms_run < 20000 THEN '5k-19.9k km'
-                ELSE '20k+ km'
-            END AS bucket,
-            COUNT(*) AS units
+            id,
+            ola_model,
+            COALESCE(variant, '') AS variant,
+            purchase_date,
+            purchase_price,
+            COALESCE(asking_price, purchase_price) AS asking_price,
+            kms_run,
+            COALESCE(battery_health_pct, 0) AS battery_health_pct,
+            COALESCE(condition_grade, 'NA') AS condition_grade,
+            COALESCE(location, 'Unassigned') AS location,
+            status,
+            CAST((julianday('now') - julianday(purchase_date)) / 30 AS INTEGER) AS age_months
         FROM bikes
-        GROUP BY bucket
-        ORDER BY units DESC
-        """,
+        """
     )
 
-    open_receivables = query_df(
+    sales_df = query_df(
         conn,
         """
         SELECT
             s.id AS sale_id,
-            b.ola_model || ' ' || COALESCE(b.variant, '') AS bike,
-            p.name AS buyer,
-            s.final_sale_price AS contract_amount,
-            COALESCE(SUM(pay.amount), 0) AS received_amount,
-            s.final_sale_price - COALESCE(SUM(pay.amount), 0) AS balance_amount
+            s.sale_date,
+            s.sale_status,
+            COALESCE(s.listed_price, s.final_sale_price) AS listed_price,
+            s.final_sale_price,
+            b.id AS bike_id,
+            b.ola_model,
+            COALESCE(b.variant, '') AS variant,
+            b.purchase_price,
+            b.kms_run,
+            COALESCE(b.location, 'Unassigned') AS location,
+            COALESCE(p.name, 'Unknown') AS buyer
         FROM sales s
         JOIN bikes b ON b.id = s.bike_id
-        JOIN parties p ON p.id = s.buyer_id
-        LEFT JOIN payments pay ON pay.sale_id = s.id
-        WHERE s.sale_status != 'cancelled'
-        GROUP BY s.id, b.ola_model, b.variant, p.name, s.final_sale_price
-        HAVING s.final_sale_price - COALESCE(SUM(pay.amount), 0) > 0
-        ORDER BY balance_amount DESC
-        LIMIT 10
-        """,
+        LEFT JOIN parties p ON p.id = s.buyer_id
+        """
     )
 
-    left_col, right_col = st.columns(2)
+    payments_df = query_df(
+        conn,
+        """
+        SELECT
+            id AS payment_id,
+            sale_id,
+            payment_date,
+            amount,
+            payment_mode,
+            payment_stage
+        FROM payments
+        """
+    )
 
-    with left_col:
-        st.caption("Inventory by Model")
-        if stock_by_model.empty:
-            st.info("No bikes in active inventory yet.")
-        else:
-            st.bar_chart(stock_by_model.set_index("model")["units"])
+    if not bikes_df.empty:
+        bikes_df["purchase_date"] = pd.to_datetime(bikes_df["purchase_date"], errors="coerce")
+        bikes_df["purchase_price"] = pd.to_numeric(bikes_df["purchase_price"], errors="coerce").fillna(0.0)
+        bikes_df["asking_price"] = pd.to_numeric(bikes_df["asking_price"], errors="coerce").fillna(0.0)
+        bikes_df["kms_run"] = pd.to_numeric(bikes_df["kms_run"], errors="coerce").fillna(0)
+        bikes_df["age_months"] = pd.to_numeric(bikes_df["age_months"], errors="coerce").fillna(0)
 
-    with right_col:
-        st.caption("KM Distribution")
-        if km_bucket.empty:
-            st.info("No bike data available.")
-        else:
-            st.bar_chart(km_bucket.set_index("bucket")["units"])
+    if not sales_df.empty:
+        sales_df["sale_date"] = pd.to_datetime(sales_df["sale_date"], errors="coerce")
+        sales_df["final_sale_price"] = pd.to_numeric(
+            sales_df["final_sale_price"], errors="coerce"
+        ).fillna(0.0)
+        sales_df["listed_price"] = pd.to_numeric(sales_df["listed_price"], errors="coerce").fillna(0.0)
+        sales_df["purchase_price"] = pd.to_numeric(
+            sales_df["purchase_price"], errors="coerce"
+        ).fillna(0.0)
 
-    st.caption("Top Open Receivables")
-    if open_receivables.empty:
-        st.success("No outstanding sale balances.")
+    if not payments_df.empty:
+        payments_df["payment_date"] = pd.to_datetime(payments_df["payment_date"], errors="coerce")
+        payments_df["amount"] = pd.to_numeric(payments_df["amount"], errors="coerce").fillna(0.0)
+
+    if payments_df.empty:
+        payment_rollup = pd.DataFrame({"sale_id": [], "received_amount": []})
     else:
-        st.dataframe(open_receivables, use_container_width=True, hide_index=True)
+        payment_rollup = (
+            payments_df.groupby("sale_id", as_index=False)["amount"]
+            .sum()
+            .rename(columns={"amount": "received_amount"})
+        )
+
+    sales_ledger = sales_df.merge(payment_rollup, on="sale_id", how="left")
+    if sales_ledger.empty:
+        sales_ledger["received_amount"] = pd.Series(dtype=float)
+        sales_ledger["balance_amount"] = pd.Series(dtype=float)
+        sales_ledger["gross_margin"] = pd.Series(dtype=float)
+    else:
+        sales_ledger["received_amount"] = sales_ledger["received_amount"].fillna(0.0)
+        sales_ledger["balance_amount"] = (
+            sales_ledger["final_sale_price"] - sales_ledger["received_amount"]
+        )
+        sales_ledger["gross_margin"] = (
+            sales_ledger["final_sale_price"] - sales_ledger["purchase_price"]
+        )
+
+    today = date.today()
+    if not sales_ledger.empty and sales_ledger["sale_date"].notna().any():
+        min_sale_date = sales_ledger["sale_date"].min().date()
+        max_sale_date = sales_ledger["sale_date"].max().date()
+    else:
+        min_sale_date = today
+        max_sale_date = today
+
+    with st.container(border=True):
+        st.markdown("##### Filters")
+        f1, f2, f3, f4, f5 = st.columns([1.4, 1.8, 2.0, 2.0, 1.8])
+        quick_range = f1.selectbox(
+            "Quick Range",
+            options=["All Time", "Last 30 Days", "Last 90 Days", "Year to Date"],
+        )
+
+        if quick_range == "Last 30 Days":
+            default_start = max(min_sale_date, today - timedelta(days=29))
+            default_end = min(max_sale_date, today)
+        elif quick_range == "Last 90 Days":
+            default_start = max(min_sale_date, today - timedelta(days=89))
+            default_end = min(max_sale_date, today)
+        elif quick_range == "Year to Date":
+            default_start = max(min_sale_date, date(today.year, 1, 1))
+            default_end = min(max_sale_date, today)
+        else:
+            default_start = min_sale_date
+            default_end = max_sale_date
+
+        if default_start > default_end:
+            default_start = default_end
+
+        max_filter_date = max(max_sale_date, today)
+        selected_range = f2.date_input(
+            "Sale Date Window",
+            value=(default_start, default_end),
+            min_value=min_sale_date,
+            max_value=max_filter_date,
+        )
+
+        if isinstance(selected_range, tuple):
+            start_date, end_date = selected_range
+        elif isinstance(selected_range, list) and len(selected_range) == 2:
+            start_date, end_date = selected_range[0], selected_range[1]
+        else:
+            start_date, end_date = selected_range, selected_range
+
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        model_options = sorted(bikes_df["ola_model"].dropna().unique().tolist()) if not bikes_df.empty else []
+        location_options = (
+            sorted(bikes_df["location"].dropna().unique().tolist()) if not bikes_df.empty else []
+        )
+        status_options = ["open", "closed", "cancelled"]
+
+        selected_models = f3.multiselect("Models", options=model_options, default=model_options)
+        selected_locations = f4.multiselect(
+            "Locations", options=location_options, default=location_options
+        )
+        selected_sale_status = f5.multiselect(
+            "Sale Status", options=status_options, default=["open", "closed"]
+        )
+
+    filtered_bikes = bikes_df.copy()
+    if not filtered_bikes.empty and selected_models:
+        filtered_bikes = filtered_bikes[filtered_bikes["ola_model"].isin(selected_models)]
+    if not filtered_bikes.empty and selected_locations:
+        filtered_bikes = filtered_bikes[filtered_bikes["location"].isin(selected_locations)]
+
+    filtered_sales = sales_ledger.copy()
+    if not filtered_sales.empty and selected_models:
+        filtered_sales = filtered_sales[filtered_sales["ola_model"].isin(selected_models)]
+    if not filtered_sales.empty and selected_locations:
+        filtered_sales = filtered_sales[filtered_sales["location"].isin(selected_locations)]
+    if not filtered_sales.empty:
+        sale_day = filtered_sales["sale_date"].dt.date
+        filtered_sales = filtered_sales[(sale_day >= start_date) & (sale_day <= end_date)]
+    if not filtered_sales.empty and selected_sale_status:
+        filtered_sales = filtered_sales[filtered_sales["sale_status"].isin(selected_sale_status)]
+
+    filtered_sale_ids = (
+        filtered_sales["sale_id"].dropna().astype(int).tolist() if not filtered_sales.empty else []
+    )
+    if payments_df.empty or not filtered_sale_ids:
+        filtered_payments = payments_df.iloc[0:0].copy()
+    else:
+        filtered_payments = payments_df[payments_df["sale_id"].isin(filtered_sale_ids)].copy()
+        if not filtered_payments.empty:
+            payment_day = filtered_payments["payment_date"].dt.date
+            filtered_payments = filtered_payments[
+                (payment_day >= start_date) & (payment_day <= end_date)
+            ]
+
+    valid_sales = (
+        filtered_sales[filtered_sales["sale_status"] != "cancelled"].copy()
+        if not filtered_sales.empty
+        else filtered_sales
+    )
+
+    inventory_units = int(len(filtered_bikes))
+    active_inventory = int(filtered_bikes["status"].isin(["in_stock", "reserved"]).sum()) if not filtered_bikes.empty else 0
+    sold_inventory = int((filtered_bikes["status"] == "sold").sum()) if not filtered_bikes.empty else 0
+    contracted_value = float(valid_sales["final_sale_price"].sum()) if not valid_sales.empty else 0.0
+    received_value = float(valid_sales["received_amount"].sum()) if not valid_sales.empty else 0.0
+    outstanding_value = float(valid_sales["balance_amount"].clip(lower=0).sum()) if not valid_sales.empty else 0.0
+    projected_margin = float(valid_sales["gross_margin"].sum()) if not valid_sales.empty else 0.0
+    avg_ticket = contracted_value / len(valid_sales) if not valid_sales.empty else 0.0
+    collection_rate = (received_value / contracted_value * 100) if contracted_value > 0 else 0.0
+    sell_through = (sold_inventory / inventory_units * 100) if inventory_units > 0 else 0.0
+    open_deals = int((valid_sales["balance_amount"] > 0).sum()) if not valid_sales.empty else 0
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Inventory Units", f"{inventory_units:,}", delta=f"{active_inventory:,} active")
+    k2.metric("Sell-through", f"{sell_through:.1f}%", delta=f"{sold_inventory:,} sold")
+    k3.metric("Contracted Value", _format_rs(contracted_value), delta=f"{len(valid_sales):,} sales")
+    k4.metric("Collections", _format_rs(received_value), delta=f"{collection_rate:.1f}% collected")
+    k5.metric(
+        "Outstanding",
+        _format_rs(outstanding_value),
+        delta=f"{open_deals:,} open deals",
+        delta_color="inverse",
+    )
+    k6.metric("Projected Margin", _format_rs(projected_margin), delta=f"Avg ticket {_format_rs(avg_ticket)}")
+
+    tab1, tab2, tab3 = st.tabs(
+        ["Commercial Overview", "Inventory Intelligence", "Receivables Control"]
+    )
+
+    with tab1:
+        left, right = st.columns([1.9, 1.1])
+        with left:
+            st.markdown("##### Contract vs Collection Trend")
+            if valid_sales.empty and filtered_payments.empty:
+                st.info("No commercial data for selected filters.")
+            else:
+                if valid_sales.empty:
+                    monthly_contract = pd.DataFrame({"month": [], "Contracted": []})
+                else:
+                    monthly_contract = (
+                        valid_sales.assign(month=valid_sales["sale_date"].dt.to_period("M").astype(str))
+                        .groupby("month", as_index=False)["final_sale_price"]
+                        .sum()
+                        .rename(columns={"final_sale_price": "Contracted"})
+                    )
+
+                if filtered_payments.empty:
+                    monthly_collection = pd.DataFrame({"month": [], "Collected": []})
+                else:
+                    monthly_collection = (
+                        filtered_payments.assign(
+                            month=filtered_payments["payment_date"].dt.to_period("M").astype(str)
+                        )
+                        .groupby("month", as_index=False)["amount"]
+                        .sum()
+                        .rename(columns={"amount": "Collected"})
+                    )
+
+                trend_df = pd.merge(monthly_contract, monthly_collection, on="month", how="outer").fillna(0.0)
+                if trend_df.empty:
+                    st.info("No trend points available.")
+                else:
+                    trend_df["month_date"] = pd.to_datetime(trend_df["month"] + "-01")
+                    trend_df = trend_df.sort_values("month_date")
+                    trend_long = trend_df.melt(
+                        id_vars=["month", "month_date"],
+                        value_vars=["Contracted", "Collected"],
+                        var_name="Metric",
+                        value_name="Amount",
+                    )
+
+                    trend_chart = (
+                        alt.Chart(trend_long)
+                        .mark_line(point=True, strokeWidth=3)
+                        .encode(
+                            x=alt.X("month_date:T", title="Month"),
+                            y=alt.Y("Amount:Q", title="Amount (Rs)"),
+                            color=alt.Color("Metric:N", title=None),
+                            tooltip=[
+                                alt.Tooltip("month:N", title="Month"),
+                                alt.Tooltip("Metric:N", title="Metric"),
+                                alt.Tooltip("Amount:Q", title="Amount", format=","),
+                            ],
+                        )
+                        .properties(height=320)
+                    )
+                    st.altair_chart(trend_chart, use_container_width=True)
+
+        with right:
+            st.markdown("##### Collections by Payment Mode")
+            if filtered_payments.empty:
+                st.info("No payment records for selected filters.")
+            else:
+                mode_split = (
+                    filtered_payments.groupby("payment_mode", as_index=False)["amount"]
+                    .sum()
+                    .sort_values("amount", ascending=False)
+                )
+                mode_chart = (
+                    alt.Chart(mode_split)
+                    .mark_bar(cornerRadiusTopRight=5, cornerRadiusBottomRight=5)
+                    .encode(
+                        x=alt.X("amount:Q", title="Amount (Rs)"),
+                        y=alt.Y("payment_mode:N", sort="-x", title=None),
+                        color=alt.Color("payment_mode:N", legend=None),
+                        tooltip=[
+                            alt.Tooltip("payment_mode:N", title="Mode"),
+                            alt.Tooltip("amount:Q", title="Amount", format=","),
+                        ],
+                    )
+                    .properties(height=160)
+                )
+                st.altair_chart(mode_chart, use_container_width=True)
+
+            st.markdown("##### Top Models by Contract Value")
+            if valid_sales.empty:
+                st.info("No sales records for selected filters.")
+            else:
+                model_revenue = (
+                    valid_sales.groupby("ola_model", as_index=False)["final_sale_price"]
+                    .sum()
+                    .rename(columns={"final_sale_price": "contracted_value"})
+                    .sort_values("contracted_value", ascending=False)
+                    .head(8)
+                )
+                st.dataframe(
+                    model_revenue,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "ola_model": "Model",
+                        "contracted_value": st.column_config.NumberColumn(
+                            "Contracted (Rs)", format="%.0f"
+                        ),
+                    },
+                )
+
+    with tab2:
+        upper_left, upper_right = st.columns([1.5, 1.5])
+        with upper_left:
+            st.markdown("##### Inventory Mix by Model and Status")
+            if filtered_bikes.empty:
+                st.info("No inventory data for selected filters.")
+            else:
+                inv_mix = (
+                    filtered_bikes.groupby(["ola_model", "status"])
+                    .size()
+                    .reset_index(name="units")
+                )
+                mix_chart = (
+                    alt.Chart(inv_mix)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("ola_model:N", title="Model"),
+                        y=alt.Y("units:Q", title="Units"),
+                        color=alt.Color("status:N", title="Status"),
+                        tooltip=[
+                            alt.Tooltip("ola_model:N", title="Model"),
+                            alt.Tooltip("status:N", title="Status"),
+                            alt.Tooltip("units:Q", title="Units"),
+                        ],
+                    )
+                    .properties(height=300)
+                )
+                st.altair_chart(mix_chart, use_container_width=True)
+
+        with upper_right:
+            st.markdown("##### Stock Age Buckets")
+            if filtered_bikes.empty:
+                st.info("No inventory data for selected filters.")
+            else:
+                age_bucketed = filtered_bikes.assign(
+                    age_bucket=pd.cut(
+                        filtered_bikes["age_months"],
+                        bins=[-1, 3, 6, 12, 9999],
+                        labels=["0-3 months", "4-6 months", "7-12 months", "12+ months"],
+                        include_lowest=True,
+                    )
+                )
+                age_mix = (
+                    age_bucketed.groupby("age_bucket", as_index=False)
+                    .size()
+                    .rename(columns={"size": "units"})
+                )
+                age_chart = (
+                    alt.Chart(age_mix)
+                    .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                    .encode(
+                        x=alt.X("age_bucket:N", title="Age"),
+                        y=alt.Y("units:Q", title="Units"),
+                        color=alt.value("#2f80ed"),
+                        tooltip=[
+                            alt.Tooltip("age_bucket:N", title="Bucket"),
+                            alt.Tooltip("units:Q", title="Units"),
+                        ],
+                    )
+                    .properties(height=300)
+                )
+                st.altair_chart(age_chart, use_container_width=True)
+
+        st.markdown("##### Active Stock Pricing vs KM Run")
+        active_stock = (
+            filtered_bikes[filtered_bikes["status"].isin(["in_stock", "reserved"])].copy()
+            if not filtered_bikes.empty
+            else filtered_bikes
+        )
+        if active_stock.empty:
+            st.info("No active stock available for selected filters.")
+        else:
+            active_stock["bike_label"] = (
+                active_stock["ola_model"] + " " + active_stock["variant"].fillna("").str.strip()
+            ).str.strip()
+            scatter_chart = (
+                alt.Chart(active_stock)
+                .mark_circle(size=95, opacity=0.8)
+                .encode(
+                    x=alt.X("kms_run:Q", title="KM Run"),
+                    y=alt.Y("asking_price:Q", title="Asking Price (Rs)"),
+                    color=alt.Color("condition_grade:N", title="Condition"),
+                    tooltip=[
+                        alt.Tooltip("id:Q", title="Bike ID"),
+                        alt.Tooltip("bike_label:N", title="Bike"),
+                        alt.Tooltip("kms_run:Q", title="KM", format=","),
+                        alt.Tooltip("asking_price:Q", title="Asking Price", format=","),
+                        alt.Tooltip("battery_health_pct:Q", title="Battery %", format=".1f"),
+                        alt.Tooltip("age_months:Q", title="Age (Months)"),
+                        alt.Tooltip("location:N", title="Location"),
+                    ],
+                )
+                .properties(height=320)
+                .interactive()
+            )
+            st.altair_chart(scatter_chart, use_container_width=True)
+
+    with tab3:
+        open_receivables = (
+            valid_sales[valid_sales["balance_amount"] > 0].copy() if not valid_sales.empty else valid_sales
+        )
+        st.markdown("##### Receivable Aging")
+        if open_receivables.empty:
+            st.success("No outstanding balances for selected filters.")
+        else:
+            open_receivables["days_since_sale"] = (
+                pd.Timestamp.now().normalize() - open_receivables["sale_date"]
+            ).dt.days.clip(lower=0)
+            open_receivables["aging_bucket"] = pd.cut(
+                open_receivables["days_since_sale"],
+                bins=[-1, 15, 30, 60, 99999],
+                labels=["0-15 days", "16-30 days", "31-60 days", "60+ days"],
+                include_lowest=True,
+            )
+            aging_mix = (
+                open_receivables.groupby("aging_bucket", as_index=False)["balance_amount"]
+                .sum()
+                .sort_values("aging_bucket")
+            )
+
+            aging_chart = (
+                alt.Chart(aging_mix)
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                .encode(
+                    x=alt.X("aging_bucket:N", title="Age Bucket"),
+                    y=alt.Y("balance_amount:Q", title="Outstanding (Rs)"),
+                    color=alt.value("#eb5757"),
+                    tooltip=[
+                        alt.Tooltip("aging_bucket:N", title="Bucket"),
+                        alt.Tooltip("balance_amount:Q", title="Outstanding", format=","),
+                    ],
+                )
+                .properties(height=280)
+            )
+            st.altair_chart(aging_chart, use_container_width=True)
+
+            table_df = (
+                open_receivables[
+                    [
+                        "sale_id",
+                        "buyer",
+                        "ola_model",
+                        "variant",
+                        "sale_date",
+                        "final_sale_price",
+                        "received_amount",
+                        "balance_amount",
+                        "days_since_sale",
+                    ]
+                ]
+                .copy()
+                .sort_values("balance_amount", ascending=False)
+            )
+            table_df["bike"] = (table_df["ola_model"] + " " + table_df["variant"]).str.strip()
+            table_df["sale_date"] = table_df["sale_date"].dt.date
+            table_df = table_df.rename(
+                columns={
+                    "sale_id": "Sale ID",
+                    "buyer": "Buyer",
+                    "sale_date": "Sale Date",
+                    "final_sale_price": "Contract (Rs)",
+                    "received_amount": "Received (Rs)",
+                    "balance_amount": "Balance (Rs)",
+                    "days_since_sale": "Days Open",
+                }
+            )[
+                [
+                    "Sale ID",
+                    "Buyer",
+                    "bike",
+                    "Sale Date",
+                    "Contract (Rs)",
+                    "Received (Rs)",
+                    "Balance (Rs)",
+                    "Days Open",
+                ]
+            ]
+            st.markdown("##### High-Risk Open Deals")
+            st.dataframe(
+                table_df.head(20),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    decision_signals: list[str] = []
+    if outstanding_value > 0:
+        decision_signals.append(
+            f"Follow up outstanding receivables of {_format_rs(outstanding_value)} across {open_deals} deals."
+        )
+    if collection_rate < 70 and contracted_value > 0:
+        decision_signals.append(
+            "Collection efficiency is below 70%; tighten advance policy for new bookings."
+        )
+    if active_inventory > sold_inventory:
+        decision_signals.append(
+            "Active stock is higher than sold stock; prioritize high-mileage discount campaigns."
+        )
+    if decision_signals:
+        st.markdown("##### Decision Signals")
+        for signal in decision_signals:
+            st.write(f"- {signal}")
 
 
 def render_bikes(conn: sqlite3.Connection) -> None:
