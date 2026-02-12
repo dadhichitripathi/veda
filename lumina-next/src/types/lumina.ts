@@ -13,7 +13,7 @@ export type OnboardingPayload = {
 };
 
 export type SaveOnboardingResponse = {
-  success: boolean;
+  success: true;
   message: string;
   sessionId: string;
   persistedAt?: string;
@@ -56,7 +56,7 @@ export type KundaliResult = {
 };
 
 export type KundaliGenerateResponse = {
-  success: boolean;
+  success: true;
   result: KundaliResult;
   sessionId: string;
 };
