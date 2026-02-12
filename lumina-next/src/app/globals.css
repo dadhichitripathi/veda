@@ -1,0 +1,284 @@
+@import "tailwindcss";
+
+:root {
+  --background: #060913;
+  --foreground: #ebefff;
+  --muted: #a7b0d8;
+  --panel: rgba(18, 24, 45, 0.78);
+  --panel-strong: rgba(22, 30, 58, 0.92);
+  --edge: rgba(164, 181, 255, 0.2);
+  --error: #ff8f9c;
+  --ok: #7cf2b6;
+  --warn: #ffd37c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background-image:
+    radial-gradient(circle at top left, #121832 0%, #060913 55%, #04050d 100%);
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 0.7rem 1rem;
+  color: #07131e;
+  background: linear-gradient(120deg, #9db7ff, #5de2ca);
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 130ms ease,
+    box-shadow 180ms ease,
+    opacity 160ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(100, 142, 255, 0.3);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(152, 173, 255, 0.34);
+  background: var(--panel-strong);
+  padding: 0.72rem 0.8rem;
+  font-size: 0.95rem;
+  color: #ebefff;
+  outline: none;
+}
+
+input::placeholder {
+  color: #9da7d5;
+}
+
+input:focus,
+select:focus {
+  border-color: #94b7ff;
+  box-shadow: 0 0 0 3px rgba(111, 150, 255, 0.22);
+}
+
+.lumina-shell {
+  width: min(940px, calc(100vw - 32px));
+  margin: 28px auto 36px;
+}
+
+.lumina-card {
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  padding: 1.4rem;
+  background: var(--panel);
+  backdrop-filter: blur(9px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+}
+
+.lumina-eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  color: #9cc4ff;
+  letter-spacing: 0.11em;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.lumina-link {
+  text-decoration: underline;
+  color: #b9ceff;
+}
+
+.lumina-field {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.lumina-label {
+  color: #d9e2ff;
+  font-size: 0.92rem;
+}
+
+.lumina-hint {
+  color: #95a0ce;
+  font-size: 0.75rem;
+}
+
+.lumina-error {
+  color: var(--error);
+  min-height: 1.05rem;
+  font-size: 0.8rem;
+}
+
+.lumina-checkbox {
+  display: flex;
+  gap: 0.68rem;
+  align-items: flex-start;
+  color: #d8e3ff;
+  font-size: 0.92rem;
+}
+
+.lumina-checkbox input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+
+.lumina-status {
+  border-radius: 10px;
+  border: 1px solid rgba(137, 156, 241, 0.24);
+  background: rgba(43, 56, 106, 0.35);
+  padding: 0.7rem 0.75rem;
+  color: #d9e4ff;
+}
+
+.lumina-status.muted {
+  color: var(--muted);
+}
+
+.lumina-status.ok {
+  color: var(--ok);
+  border-color: rgba(122, 245, 187, 0.4);
+  background: rgba(18, 98, 67, 0.28);
+}
+
+.lumina-status.warn {
+  color: var(--warn);
+  border-color: rgba(255, 216, 143, 0.4);
+  background: rgba(107, 70, 15, 0.3);
+}
+
+.lumina-status.error {
+  color: var(--error);
+  border-color: rgba(255, 140, 156, 0.4);
+  background: rgba(95, 31, 44, 0.34);
+}
+
+.lumina-button-secondary {
+  color: #d9e8ff;
+  border: 1px solid rgba(166, 186, 255, 0.35);
+  background: rgba(43, 56, 110, 0.34);
+}
+
+.lumina-progress-shell {
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(58, 74, 130, 0.56);
+  border: 1px solid rgba(132, 154, 255, 0.32);
+  overflow: hidden;
+  height: 14px;
+}
+
+.lumina-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #93adff, #59dfcb);
+  transition: width 150ms linear;
+}
+
+.lumina-question-card {
+  border-radius: 14px;
+  border: 1px solid rgba(152, 174, 255, 0.34);
+  background: rgba(28, 38, 76, 0.75);
+  padding: 1rem;
+}
+
+.lumina-option-button {
+  width: 100%;
+  text-align: left;
+  color: #eaf0ff;
+  border: 1px solid rgba(142, 167, 255, 0.36);
+  background: rgba(76, 96, 177, 0.38);
+}
+
+.lumina-result-card {
+  border-radius: 14px;
+  border: 1px solid rgba(143, 165, 255, 0.33);
+  background: rgba(20, 29, 59, 0.84);
+  padding: 1rem;
+}
+
+.lumina-tag {
+  display: inline-flex;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  border: 1px solid rgba(154, 177, 255, 0.42);
+  background: rgba(63, 82, 153, 0.5);
+  color: #deebff;
+}
+
+.lumina-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(162, 181, 255, 0.58);
+  background: rgba(87, 104, 168, 0.4);
+  padding: 0;
+}
+
+.lumina-dot.active {
+  width: 22px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #9ab3ff, #5edecb);
+}
+
+.lumina-metric {
+  border-radius: 12px;
+  background: rgba(55, 74, 138, 0.44);
+  border: 1px solid rgba(149, 173, 255, 0.3);
+  padding: 0.7rem;
+}
+
+.lumina-meter {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(171, 190, 255, 0.26);
+}
+
+.lumina-meter span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8aa7ff, #6de0cb);
+}
+
+.lumina-list {
+  margin: 0.65rem 0 0;
+  padding-left: 1.15rem;
+  line-height: 1.65;
+}
+
+.lumina-timeline-item {
+  border-left: 2px solid #83a7ff;
+  padding-left: 0.68rem;
+}
+
+@media (max-width: 780px) {
+  .lumina-shell {
+    width: calc(100vw - 18px);
+    margin-top: 16px;
+  }
+
+  .lumina-card {
+    padding: 1rem;
+  }
+}
