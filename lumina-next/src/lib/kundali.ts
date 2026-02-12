@@ -105,6 +105,7 @@ export function generateKundali(payload: OnboardingPayload): KundaliResult {
       },
     ],
     chatHealth: "degraded",
+    source: "local",
   };
 }
 

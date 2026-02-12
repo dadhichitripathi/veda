@@ -16,6 +16,7 @@ export type SaveOnboardingResponse = {
   success: boolean;
   message: string;
   sessionId: string;
+  persistedAt?: string;
 };
 
 export type ScoreLabel = "Strong" | "Good" | "Balanced" | "Needs support";
@@ -51,12 +52,36 @@ export type KundaliResult = {
     advice: string;
   }>;
   chatHealth: "healthy" | "degraded";
+  source: "remote" | "local";
 };
 
 export type KundaliGenerateResponse = {
   success: boolean;
   result: KundaliResult;
+  sessionId: string;
 };
+
+export type CurrentOnboardingResponse =
+  | {
+      success: true;
+      sessionId: string;
+      onboarding: OnboardingPayload;
+    }
+  | {
+      success: false;
+      message: string;
+    };
+
+export type CurrentKundaliResponse =
+  | {
+      success: true;
+      sessionId: string;
+      result: KundaliResult;
+    }
+  | {
+      success: false;
+      message: string;
+    };
 
 export type CountryCode = {
   code: string;

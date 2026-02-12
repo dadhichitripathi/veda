@@ -3,9 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { trackEvent } from "@/lib/analytics-client";
+import { generateKundali, getCurrentOnboarding } from "@/lib/api-client";
 import { CRAFTING_PHASES } from "@/lib/constants";
 import { buildExperienceQuestions } from "@/lib/moon";
-import { getOnboardingLocal, saveResultLocal, setCuriosityLocal } from "@/lib/storage";
+import {
+  getOnboardingLocal,
+  saveOnboardingLocal,
+  saveResultLocal,
+  setCuriosityLocal,
+} from "@/lib/storage";
 import type { ExperienceQuestion, KundaliResult, OnboardingPayload } from "@/types/lumina";
 
 const QUESTION_THRESHOLDS = [25, 55, 80] as const;
@@ -37,32 +44,45 @@ export default function CraftingPage() {
     activeQuestionIndex !== null ? questions[activeQuestionIndex] : null;
 
   useEffect(() => {
-    const localData = getOnboardingLocal();
-    if (!localData) {
-      setMissingOnboarding(true);
-      return;
-    }
+    let mounted = true;
 
-    setOnboarding(localData);
+    const loadAndGenerate = async () => {
+      const serverOnboarding = await getCurrentOnboarding().catch(() => null);
+      const localData = getOnboardingLocal();
+      const resolvedOnboarding =
+        serverOnboarding && serverOnboarding.success ? serverOnboarding.onboarding : localData;
 
-    const generate = async () => {
+      if (!mounted) return;
+
+      if (!resolvedOnboarding) {
+        setMissingOnboarding(true);
+        void trackEvent({ eventName: "lumina_missing_onboarding_recovery" });
+        return;
+      }
+
+      setOnboarding(resolvedOnboarding);
+      saveOnboardingLocal(resolvedOnboarding);
+
+      void trackEvent({
+        eventName: "lumina_crafting_started",
+        metadata: { sessionId: resolvedOnboarding.sessionId },
+      });
+
       try {
-        const response = await fetch("/api/kundali/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(localData),
-        });
-        const json = (await response.json()) as
-          | { success: true; result: KundaliResult }
-          | { success: false };
-
-        if (!response.ok || !json.success) throw new Error("Generate failed");
-
+        const json = await generateKundali(resolvedOnboarding);
+        if (!json.success) throw new Error(json.message || "Generate failed");
+        if (!mounted) return;
         setResult(json.result);
+        saveResultLocal(json.result);
         setQuestions(buildExperienceQuestions(json.result.moonSignRaw));
+        void trackEvent({
+          eventName: "lumina_kundali_generated_client",
+          metadata: { source: json.result.source },
+        });
       } catch {
+        if (!mounted) return;
         const fallback: KundaliResult = {
-          name: localData.name,
+          name: resolvedOnboarding.name,
           lagna: "Vrischika",
           moonSignRaw: "Meena (Pisces)",
           moonSign: "Pisces",
@@ -106,16 +126,23 @@ export default function CraftingPage() {
             },
           ],
           chatHealth: "degraded",
+          source: "local",
         };
 
         setResult(fallback);
+        saveResultLocal(fallback);
         setQuestions(buildExperienceQuestions(fallback.moonSignRaw));
       } finally {
+        if (!mounted) return;
         setDataReady(true);
       }
     };
 
-    void generate();
+    void loadAndGenerate();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -154,6 +181,12 @@ export default function CraftingPage() {
     ) {
       completionTriggeredRef.current = true;
       saveResultLocal(result);
+      void trackEvent({
+        eventName: "lumina_crafting_complete",
+        metadata: {
+          source: result.source,
+        },
+      });
       window.setTimeout(() => router.push("/results"), 500);
     }
   }, [answeredCount, dataReady, progress, questions.length, result, router]);
@@ -204,6 +237,14 @@ export default function CraftingPage() {
                     if (activeQuestion.kind === "curiosity") {
                       setCuriosityLocal(option.text);
                     }
+                    void trackEvent({
+                      eventName: "lumina_crafting_question_answered",
+                      metadata: {
+                        questionIndex: activeQuestionIndex,
+                        option: option.text,
+                        kind: activeQuestion.kind,
+                      },
+                    });
 
                     window.setTimeout(() => {
                       setAnsweredCount((count) => count + 1);

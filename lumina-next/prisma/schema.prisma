@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Session {
+  id         String         @id
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  onboarding Onboarding?
+  kundali    KundaliReading?
+  events     AnalyticsEvent[]
+}
+
+model Onboarding {
+  id           Int      @id @default(autoincrement())
+  sessionId    String   @unique
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name         String
+  gender       String
+  dateOfBirth  String
+  timeOfBirth  String
+  placeOfBirth String
+  countryCode  String
+  phone        String
+  consent      Boolean
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model KundaliReading {
+  id         Int      @id @default(autoincrement())
+  sessionId  String   @unique
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  resultJson Json
+  source     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AnalyticsEvent {
+  id        Int      @id @default(autoincrement())
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  eventName String
+  path      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([eventName, createdAt])
+  @@index([sessionId, createdAt])
+}

@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { trackEvent } from "@/lib/analytics-client";
+import { getCurrentOnboarding, saveOnboarding } from "@/lib/api-client";
 import { CITY_HINTS, COUNTRY_CODES } from "@/lib/constants";
-import { saveOnboardingLocal } from "@/lib/storage";
+import { getOnboardingLocal, saveOnboardingLocal } from "@/lib/storage";
 import { validateField, validatePayload, type FieldErrors } from "@/lib/validation";
 import type { OnboardingPayload, SaveOnboardingResponse } from "@/types/lumina";
 
@@ -28,6 +30,7 @@ const DEFAULT_FORM: OnboardingPayload = {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const trackedFieldErrors = useRef<Set<string>>(new Set());
 
   const [form, setForm] = useState<OnboardingPayload>(DEFAULT_FORM);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -42,6 +45,45 @@ export default function OnboardingPage() {
     () => !saving && Object.keys(validatePayload(form)).length === 0,
     [form, saving],
   );
+
+  useEffect(() => {
+    void trackEvent({ eventName: "lumina_onboarding_started" });
+
+    let mounted = true;
+    const hydrateExisting = async () => {
+      const [serverData, localData] = await Promise.all([
+        getCurrentOnboarding().catch(() => null),
+        Promise.resolve(getOnboardingLocal()),
+      ]);
+
+      if (!mounted) return;
+      const resolved =
+        serverData && serverData.success ? serverData.onboarding : localData;
+
+      if (!resolved) return;
+
+      window.setTimeout(() => {
+        if (!mounted) return;
+        setForm(resolved);
+        setStatus({
+          tone: "muted",
+          message: "Loaded your previous details. You can edit and continue.",
+        });
+        void trackEvent({
+          eventName: "lumina_onboarding_prefilled",
+          metadata: {
+            source: serverData && serverData.success ? "server" : "local",
+          },
+        });
+      }, 0);
+    };
+
+    void hydrateExisting();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const onFieldChange = (
     field: keyof OnboardingPayload,
@@ -63,6 +105,17 @@ export default function OnboardingPage() {
       ...prev,
       [field]: message || undefined,
     }));
+
+    if (message && !trackedFieldErrors.current.has(field)) {
+      trackedFieldErrors.current.add(field);
+      void trackEvent({
+        eventName: "lumina_field_error",
+        metadata: {
+          field,
+          message,
+        },
+      });
+    }
   };
 
   const submitSave = async (maxRetries: number): Promise<void> => {
@@ -85,16 +138,11 @@ export default function OnboardingPage() {
       }
 
       try {
-        const response = await fetch("/api/onboarding/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(basePayload),
-        });
-        const json = (await response.json()) as
+        const json = (await saveOnboarding(basePayload)) as
           | SaveOnboardingResponse
           | { success: false; message: string; errors?: FieldErrors };
 
-        if (!response.ok || !json.success) {
+        if (!json.success) {
           if ("errors" in json && json.errors) setErrors(json.errors);
           lastError = json.message || "Could not save details";
           throw new Error(lastError);
@@ -109,6 +157,12 @@ export default function OnboardingPage() {
         setStatus({
           tone: "ok",
           message: "Saved successfully. Preparing your kundali...",
+        });
+        void trackEvent({
+          eventName: "lumina_onboarding_submit_success",
+          metadata: {
+            sessionId: json.sessionId,
+          },
         });
         setSaving(false);
         router.push("/crafting");
@@ -127,6 +181,12 @@ export default function OnboardingPage() {
       tone: "error",
       message: `Could not save data. ${lastError}. Please retry.`,
     });
+    void trackEvent({
+      eventName: "lumina_onboarding_submit_failed",
+      metadata: {
+        reason: lastError,
+      },
+    });
   };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -138,6 +198,12 @@ export default function OnboardingPage() {
       setStatus({
         tone: "warn",
         message: "Please fix highlighted fields before continuing.",
+      });
+      void trackEvent({
+        eventName: "lumina_onboarding_validation_failed",
+        metadata: {
+          errorCount: Object.keys(fieldErrors).length,
+        },
       });
       return;
     }

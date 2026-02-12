@@ -26,15 +26,21 @@ Highlights:
 
 - Routes: `/onboarding`, `/crafting`, `/results`
 - API routes:
+  - `GET /api/onboarding/current`
   - `POST /api/onboarding/save`
+  - `GET /api/kundali/current`
   - `POST /api/kundali/generate`
   - `GET /api/chat/status`
+  - `POST /api/analytics/track`
+  - `GET /api/analytics/summary`
+  - `GET /api/health`
 
 Run:
 
 ```bash
 cd lumina-next
 npm install
+npm run prisma:migrate -- --name init
 npm run dev
 ```
 

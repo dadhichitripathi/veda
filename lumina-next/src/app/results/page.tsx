@@ -3,11 +3,15 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { trackEvent } from "@/lib/analytics-client";
+import { getCurrentKundali, getCurrentOnboarding } from "@/lib/api-client";
 import {
   clearLuminaLocalState,
   getCuriosityLocal,
   getOnboardingLocal,
   getResultLocal,
+  saveOnboardingLocal,
+  saveResultLocal,
 } from "@/lib/storage";
 import type { DomainScore, KundaliResult, OnboardingPayload } from "@/types/lumina";
 
@@ -27,14 +31,51 @@ export default function ResultsPage() {
   const [cardIndex, setCardIndex] = useState(0);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const onboardingData = getOnboardingLocal();
-      const resultData = getResultLocal();
-      setOnboarding(onboardingData);
-      setResult(resultData);
-    }, 0);
+    let mounted = true;
 
-    return () => window.clearTimeout(timer);
+    const load = async () => {
+      const [serverOnboarding, serverResult] = await Promise.all([
+        getCurrentOnboarding().catch(() => null),
+        getCurrentKundali().catch(() => null),
+      ]);
+
+      if (!mounted) return;
+
+      const localOnboarding = getOnboardingLocal();
+      const localResult = getResultLocal();
+
+      const resolvedOnboarding =
+        serverOnboarding && serverOnboarding.success
+          ? serverOnboarding.onboarding
+          : localOnboarding;
+      const resolvedResult =
+        serverResult && serverResult.success ? serverResult.result : localResult;
+
+      window.setTimeout(() => {
+        if (!mounted) return;
+
+        setOnboarding(resolvedOnboarding);
+        setResult(resolvedResult);
+
+        if (resolvedOnboarding) saveOnboardingLocal(resolvedOnboarding);
+        if (resolvedResult) saveResultLocal(resolvedResult);
+
+        void trackEvent({
+          eventName: "lumina_results_opened",
+          metadata: {
+            hasServerOnboarding: Boolean(serverOnboarding && serverOnboarding.success),
+            hasServerResult: Boolean(serverResult && serverResult.success),
+            resultSource: resolvedResult?.source ?? "unknown",
+          },
+        });
+      }, 0);
+    };
+
+    void load();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const cards = useMemo<ResultCard[]>(() => {
@@ -126,11 +167,29 @@ export default function ResultsPage() {
               AI chat status: <strong>{result.chatHealth}</strong> (guided fallback enabled
               on delay).
             </li>
+            <li>
+              Generation source: <strong>{result.source}</strong>.
+            </li>
           </ul>
         ),
       },
     ];
   }, [result]);
+
+  useEffect(() => {
+    if (!result || cards.length === 0) return;
+    const active = cards[cardIndex];
+    if (!active) return;
+
+    void trackEvent({
+      eventName: "lumina_results_card_viewed",
+      metadata: {
+        cardTag: active.tag,
+        cardIndex,
+        source: result.source,
+      },
+    });
+  }, [cardIndex, cards, result]);
 
   if (onboarding === undefined || result === undefined) return null;
 
@@ -149,10 +208,6 @@ export default function ResultsPage() {
         </section>
       </main>
     );
-  }
-
-  if (!result || !onboarding) {
-    return null;
   }
 
   const activeCard = cards[cardIndex];
@@ -213,6 +268,9 @@ export default function ResultsPage() {
           </button>
           <button
             onClick={() => {
+              void trackEvent({
+                eventName: "lumina_restart_reading_clicked",
+              });
               clearLuminaLocalState();
               router.push("/onboarding");
             }}

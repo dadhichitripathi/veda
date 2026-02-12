@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
+import { recordAnalyticsEvent } from "@/lib/analytics-server";
+import { db } from "@/lib/db";
+import { resolveSessionId, setSessionCookie } from "@/lib/session";
 import { validatePayload } from "@/lib/validation";
 import type { OnboardingPayload, SaveOnboardingResponse } from "@/types/lumina";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   let payload: OnboardingPayload;
 
   try {
@@ -27,15 +30,64 @@ export async function POST(request: Request) {
     );
   }
 
-  // Simulate a short network/database delay to mimic production behavior.
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  const sessionId = resolveSessionId(request, payload.sessionId);
 
-  const response: SaveOnboardingResponse = {
-    success: true,
-    message: "Onboarding saved successfully",
-    sessionId: payload.sessionId ?? `lumina-${Date.now().toString(36)}`,
-  };
+  try {
+    await db.session.upsert({
+      where: { id: sessionId },
+      update: {},
+      create: { id: sessionId },
+    });
 
-  return NextResponse.json(response, { status: 200 });
+    await db.onboarding.upsert({
+      where: { sessionId },
+      update: {
+        name: payload.name.trim(),
+        gender: payload.gender,
+        dateOfBirth: payload.dateOfBirth,
+        timeOfBirth: payload.timeOfBirth,
+        placeOfBirth: payload.placeOfBirth.trim(),
+        countryCode: payload.countryCode,
+        phone: payload.phone,
+        consent: payload.consent,
+      },
+      create: {
+        sessionId,
+        name: payload.name.trim(),
+        gender: payload.gender,
+        dateOfBirth: payload.dateOfBirth,
+        timeOfBirth: payload.timeOfBirth,
+        placeOfBirth: payload.placeOfBirth.trim(),
+        countryCode: payload.countryCode,
+        phone: payload.phone,
+        consent: payload.consent,
+      },
+    });
+
+    await recordAnalyticsEvent({
+      eventName: "lumina_onboarding_saved",
+      sessionId,
+      path: request.nextUrl.pathname,
+    });
+
+    const response: SaveOnboardingResponse = {
+      success: true,
+      message: "Onboarding saved successfully",
+      sessionId,
+      persistedAt: new Date().toISOString(),
+    };
+
+    const nextResponse = NextResponse.json(response, { status: 200 });
+    setSessionCookie(nextResponse, sessionId);
+    return nextResponse;
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Could not persist onboarding data right now. Please retry.",
+      },
+      { status: 500 },
+    );
+  }
 }
 
